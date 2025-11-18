@@ -136,6 +136,56 @@ function scheduleRegistration(
   scheduledJobs.set(requestId, timeoutId)
 }
 
+export async function DELETE(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const requestId = searchParams.get('requestId')
+
+    if (!requestId) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: 'Thiếu requestId',
+        },
+        { status: 400 }
+      )
+    }
+
+    if (scheduledJobs.has(requestId)) {
+      const job = scheduledJobs.get(requestId)!
+      clearTimeout(job as ReturnType<typeof setTimeout>)
+      clearInterval(job as ReturnType<typeof setInterval>)
+      scheduledJobs.delete(requestId)
+      
+      addLog(requestId, {
+        message: 'Đã dừng lịch đăng ký tự động',
+      })
+
+      return NextResponse.json({
+        success: true,
+        message: 'Đã dừng lịch đăng ký tự động thành công',
+      })
+    }
+
+    return NextResponse.json(
+      {
+        success: false,
+        message: 'Không tìm thấy job với requestId này',
+      },
+      { status: 404 }
+    )
+  } catch (error) {
+    console.error('Cancel job error:', error)
+    return NextResponse.json(
+      {
+        success: false,
+        message: `Lỗi: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      },
+      { status: 500 }
+    )
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body: RegisterRequest = await request.json()

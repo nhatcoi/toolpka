@@ -24,6 +24,15 @@ interface CurlEntry {
   curl: string
 }
 
+const STORAGE_KEY = 'dang-ky-mon-hoc-data'
+
+interface SavedData {
+  curlEntries: CurlEntry[]
+  scheduledTime: string
+  retryInterval: string
+  retryCount: string
+}
+
 export default function DangKyMonHoc() {
   const [curlEntries, setCurlEntries] = useState<CurlEntry[]>([
     { id: '1', title: '', curl: '' },
@@ -32,10 +41,56 @@ export default function DangKyMonHoc() {
   const [retryInterval, setRetryInterval] = useState('')
   const [retryCount, setRetryCount] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [loadingEntries, setLoadingEntries] = useState<Set<string>>(new Set())
   const [response, setResponse] = useState<RegistrationResponse | null>(null)
   const [isScheduled, setIsScheduled] = useState(false)
+  const [scheduledRequestId, setScheduledRequestId] = useState<string | null>(null)
   const [logs, setLogs] = useState<Array<{ timestamp: string; data: any }>>([])
   const logsListRef = useRef<HTMLDivElement>(null)
+  const [isInitialized, setIsInitialized] = useState(false)
+
+  // Load data from localStorage on mount
+  useEffect(() => {
+    try {
+      const savedData = localStorage.getItem(STORAGE_KEY)
+      if (savedData) {
+        const parsed: SavedData = JSON.parse(savedData)
+        if (parsed.curlEntries && parsed.curlEntries.length > 0) {
+          setCurlEntries(parsed.curlEntries)
+        }
+        if (parsed.scheduledTime) {
+          setScheduledTime(parsed.scheduledTime)
+        }
+        if (parsed.retryInterval) {
+          setRetryInterval(parsed.retryInterval)
+        }
+        if (parsed.retryCount) {
+          setRetryCount(parsed.retryCount)
+        }
+      }
+    } catch (error) {
+      console.error('Error loading saved data:', error)
+    } finally {
+      setIsInitialized(true)
+    }
+  }, [])
+
+  // Save data to localStorage whenever it changes
+  useEffect(() => {
+    if (!isInitialized) return
+    
+    try {
+      const dataToSave: SavedData = {
+        curlEntries,
+        scheduledTime,
+        retryInterval,
+        retryCount,
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave))
+    } catch (error) {
+      console.error('Error saving data:', error)
+    }
+  }, [curlEntries, scheduledTime, retryInterval, retryCount, isInitialized])
 
   const parseCurl = (curlCommand: string): CurlData | null => {
     try {
@@ -95,6 +150,117 @@ export default function DangKyMonHoc() {
     setCurlEntries(
       curlEntries.map((entry) => (entry.id === id ? { ...entry, title } : entry))
     )
+  }
+
+  const handleRegisterSingle = async (entryId: string) => {
+    const entry = curlEntries.find((e) => e.id === entryId)
+    if (!entry) return
+
+    if (!entry.curl.trim()) {
+      setResponse({
+        success: false,
+        message: `Vui lòng nhập curl command cho môn ${entry.title || entryId}.`,
+        timestamp: new Date().toLocaleString('vi-VN'),
+      })
+      return
+    }
+
+    const parsed = parseCurl(entry.curl)
+    if (!parsed) {
+      setResponse({
+        success: false,
+        message: `Lỗi: Không thể parse curl command ở mục ${entry.title || entryId}. Vui lòng kiểm tra lại.`,
+        timestamp: new Date().toLocaleString('vi-VN'),
+      })
+      return
+    }
+
+    setLoadingEntries((prev) => new Set(prev).add(entryId))
+    setResponse(null)
+
+    try {
+      const request = {
+        url: parsed.url,
+        headers: parsed.headers,
+        cookies: parsed.cookies,
+        data: parsed.data,
+        title: entry.title || `Môn ${entryId}`,
+      }
+
+      const res = await fetch('/api/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          requests: [request],
+          scheduledTime: null,
+          retryInterval: retryInterval ? parseInt(retryInterval) : null,
+          retryCount: retryCount ? parseInt(retryCount) : null,
+        }),
+      })
+
+      const result = await res.json()
+      const timestamp = new Date().toLocaleString('vi-VN')
+      
+      setResponse({
+        success: result.success,
+        message: result.message,
+        data: result.data,
+        timestamp,
+      })
+      
+      const newLog = {
+        timestamp,
+        data: {
+          success: result.success,
+          message: result.message,
+          data: result.data,
+          title: entry.title || `Môn ${entryId}`,
+        },
+      }
+      
+      setLogs((prevLogs) => [newLog, ...prevLogs])
+      
+      setTimeout(() => {
+        if (logsListRef.current) {
+          logsListRef.current.scrollTop = 0
+        }
+      }, 100)
+    } catch (error) {
+      const timestamp = new Date().toLocaleString('vi-VN')
+      const errorMessage = `Lỗi: ${error instanceof Error ? error.message : 'Unknown error'}`
+      
+      setResponse({
+        success: false,
+        message: errorMessage,
+        timestamp,
+      })
+      
+      const errorLog = {
+        timestamp,
+        data: {
+          success: false,
+          message: errorMessage,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          title: entry.title || `Môn ${entryId}`,
+        },
+      }
+      
+      setLogs((prevLogs) => [errorLog, ...prevLogs])
+      
+      setTimeout(() => {
+        if (logsListRef.current) {
+          logsListRef.current.scrollTop = 0
+        }
+      }, 100)
+    } finally {
+      setLoadingEntries((prev) => {
+        const next = new Set(prev)
+        next.delete(entryId)
+        return next
+      })
+    }
   }
 
   const handleRegister = async (isScheduled: boolean) => {
@@ -167,6 +333,9 @@ export default function DangKyMonHoc() {
         timestamp,
       })
       setIsScheduled(result.scheduled || false)
+      if (result.scheduled && result.requestId) {
+        setScheduledRequestId(result.requestId)
+      }
       
       const newLog = {
         timestamp,
@@ -219,6 +388,70 @@ export default function DangKyMonHoc() {
     }
   }
 
+  const handleStopScheduled = async () => {
+    if (!scheduledRequestId) return
+
+    setIsLoading(true)
+    try {
+      const res = await fetch(`/api/register?requestId=${scheduledRequestId}`, {
+        method: 'DELETE',
+      })
+
+      const result = await res.json()
+      const timestamp = new Date().toLocaleString('vi-VN')
+      
+      setResponse({
+        success: result.success,
+        message: result.message,
+        timestamp,
+      })
+      
+      if (result.success) {
+        setIsScheduled(false)
+        setScheduledRequestId(null)
+      }
+      
+      const newLog = {
+        timestamp,
+        data: {
+          success: result.success,
+          message: result.message,
+          action: 'stop_scheduled',
+        },
+      }
+      
+      setLogs((prevLogs) => [newLog, ...prevLogs])
+      
+      setTimeout(() => {
+        if (logsListRef.current) {
+          logsListRef.current.scrollTop = 0
+        }
+      }, 100)
+    } catch (error) {
+      const timestamp = new Date().toLocaleString('vi-VN')
+      const errorMessage = `Lỗi: ${error instanceof Error ? error.message : 'Unknown error'}`
+      
+      setResponse({
+        success: false,
+        message: errorMessage,
+        timestamp,
+      })
+      
+      const errorLog = {
+        timestamp,
+        data: {
+          success: false,
+          message: errorMessage,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          action: 'stop_scheduled',
+        },
+      }
+      
+      setLogs((prevLogs) => [errorLog, ...prevLogs])
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   return (
     <div className={styles.container}>
@@ -233,15 +466,25 @@ export default function DangKyMonHoc() {
               <label className={styles.label}>
                 Môn {index + 1} - cURL Command:
               </label>
-              {curlEntries.length > 1 && (
+              <div className={styles.entryActions}>
                 <button
-                  className={styles.removeButton}
-                  onClick={() => removeCurlEntry(entry.id)}
+                  className={styles.registerButton}
+                  onClick={() => handleRegisterSingle(entry.id)}
+                  disabled={isLoading || loadingEntries.has(entry.id)}
                   type="button"
                 >
-                  ✕ Xóa
+                  {loadingEntries.has(entry.id) ? 'Đang xử lý...' : 'Đăng ký'}
                 </button>
-              )}
+                {curlEntries.length > 1 && (
+                  <button
+                    className={styles.removeButton}
+                    onClick={() => removeCurlEntry(entry.id)}
+                    type="button"
+                  >
+                    ✕ Xóa
+                  </button>
+                )}
+              </div>
             </div>
             <div className={styles.titleInputWrapper}>
               <input
@@ -337,6 +580,14 @@ export default function DangKyMonHoc() {
       {isScheduled && (
         <div className={styles.scheduledInfo}>
           <span>Đã lên lịch đăng ký tự động</span>
+          <button
+            className={styles.stopButton}
+            onClick={handleStopScheduled}
+            disabled={isLoading}
+            type="button"
+          >
+            Dừng
+          </button>
         </div>
       )}
 
