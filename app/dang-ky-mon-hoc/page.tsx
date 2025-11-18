@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import styles from './page.module.css'
 
 interface CurlData {
@@ -34,9 +34,8 @@ export default function DangKyMonHoc() {
   const [isLoading, setIsLoading] = useState(false)
   const [response, setResponse] = useState<RegistrationResponse | null>(null)
   const [isScheduled, setIsScheduled] = useState(false)
-  const [logs, setLogs] = useState<Array<{ timestamp: string; data: any; requestId?: string }>>([])
-  const [requestId, setRequestId] = useState<string | null>(null)
-  const [isPolling, setIsPolling] = useState(false)
+  const [logs, setLogs] = useState<Array<{ timestamp: string; data: any }>>([])
+  const logsListRef = useRef<HTMLDivElement>(null)
 
   const parseCurl = (curlCommand: string): CurlData | null => {
     try {
@@ -159,83 +158,67 @@ export default function DangKyMonHoc() {
       })
 
       const result = await res.json()
+      const timestamp = new Date().toLocaleString('vi-VN')
+      
       setResponse({
         success: result.success,
         message: result.message,
         data: result.data,
-        timestamp: new Date().toLocaleString('vi-VN'),
-        logs: result.logs,
+        timestamp,
       })
       setIsScheduled(result.scheduled || false)
       
-      const currentRequestId = result.requestId || `immediate-${Date.now()}`
-      setRequestId(currentRequestId)
-      setIsPolling(true)
-      startPolling(currentRequestId)
-      await fetchLogs(currentRequestId)
+      const newLog = {
+        timestamp,
+        data: {
+          success: result.success,
+          message: result.message,
+          data: result.data,
+          scheduled: result.scheduled,
+          scheduledTime: result.scheduledTime,
+          retryInterval: result.retryInterval,
+          retryCount: result.retryCount,
+        },
+      }
+      
+      setLogs((prevLogs) => [newLog, ...prevLogs])
+      
+      setTimeout(() => {
+        if (logsListRef.current) {
+          logsListRef.current.scrollTop = 0
+        }
+      }, 100)
     } catch (error) {
+      const timestamp = new Date().toLocaleString('vi-VN')
+      const errorMessage = `Lỗi: ${error instanceof Error ? error.message : 'Unknown error'}`
+      
       setResponse({
         success: false,
-        message: `Lỗi: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        timestamp: new Date().toLocaleString('vi-VN'),
+        message: errorMessage,
+        timestamp,
       })
+      
+      const errorLog = {
+        timestamp,
+        data: {
+          success: false,
+          message: errorMessage,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        },
+      }
+      
+      setLogs((prevLogs) => [errorLog, ...prevLogs])
+      
+      setTimeout(() => {
+        if (logsListRef.current) {
+          logsListRef.current.scrollTop = 0
+        }
+      }, 100)
     } finally {
       setIsLoading(false)
     }
   }
 
-  const fetchLogs = async (requestIdParam?: string) => {
-    try {
-      const id = requestIdParam || requestId
-      const url = id ? `/api/logs?requestId=${id}` : '/api/logs'
-      const res = await fetch(url)
-      const result = await res.json()
-      if (result.success) {
-        setLogs(result.logs || [])
-        return result.logs || []
-      }
-    } catch (error) {
-      console.error('Error fetching logs:', error)
-    }
-    return []
-  }
-
-  const startPolling = (id: string) => {
-    if ((window as any).pollInterval) {
-      clearInterval((window as any).pollInterval)
-    }
-    
-    const pollInterval = setInterval(async () => {
-      const shouldContinue = (window as any).isPollingActive
-      if (!shouldContinue) {
-        clearInterval(pollInterval)
-        ;(window as any).pollInterval = null
-        return
-      }
-      await fetchLogs(id)
-    }, 2000)
-
-    ;(window as any).pollInterval = pollInterval
-    ;(window as any).isPollingActive = true
-  }
-
-  useEffect(() => {
-    return () => {
-      if ((window as any).pollInterval) {
-        clearInterval((window as any).pollInterval)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!isPolling) {
-      ;(window as any).isPollingActive = false
-      if ((window as any).pollInterval) {
-        clearInterval((window as any).pollInterval)
-        ;(window as any).pollInterval = null
-      }
-    }
-  }, [isPolling])
 
   return (
     <div className={styles.container}>
@@ -351,25 +334,9 @@ export default function DangKyMonHoc() {
         </button>
       </div>
 
-      {(isScheduled || isPolling) && (
+      {isScheduled && (
         <div className={styles.scheduledInfo}>
-          {isScheduled && '✓ Đã lên lịch đăng ký tự động'}
-          {isPolling && '🔄 Đang theo dõi logs tự động...'}
-          <button
-            className={styles.logsButton}
-            onClick={() => {
-              setIsPolling(false)
-              ;(window as any).isPollingActive = false
-              if ((window as any).pollInterval) {
-                clearInterval((window as any).pollInterval)
-                ;(window as any).pollInterval = null
-              }
-              fetchLogs()
-            }}
-            type="button"
-          >
-            {isPolling ? 'Dừng theo dõi' : 'Xem Logs'}
-          </button>
+          <span>Đã lên lịch đăng ký tự động</span>
         </div>
       )}
 
@@ -381,7 +348,7 @@ export default function DangKyMonHoc() {
             >
               <div className={styles.responseHeader}>
                 <strong>
-                  {response.success ? '✓ Thành công' : '✗ Lỗi'}
+                  {response.success ? 'Thành công' : 'Lỗi'}
                 </strong>
                 <span className={styles.timestamp}>{response.timestamp}</span>
               </div>
@@ -396,17 +363,15 @@ export default function DangKyMonHoc() {
         </div>
 
         <div className={styles.logsSection}>
-          <h3 className={styles.logsTitle}>
-            {isPolling ? '🔄 Logs tự động (đang cập nhật...)' : 'Logs từ Cron Jobs:'}
-          </h3>
+          <h3 className={styles.logsTitle}>API Response</h3>
           {logs.length > 0 ? (
-            <div className={styles.logsList}>
+            <div className={styles.logsList} ref={logsListRef}>
               {logs.map((log, index) => (
-                <div key={index} className={styles.logEntry}>
+                <div key={`${log.timestamp}-${index}`} className={`${styles.logEntry} ${index === 0 ? styles.newLog : ''}`}>
                   <div className={styles.logHeader}>
                     <div className={styles.logTimestamp}>{log.timestamp}</div>
-                    {log.data?.title && (
-                      <div className={styles.logTitle}>📚 {log.data.title}</div>
+                    {log.data?.scheduled && (
+                      <div className={styles.logTitle}>Đã lên lịch</div>
                     )}
                   </div>
                   <pre className={styles.logData}>
@@ -417,7 +382,7 @@ export default function DangKyMonHoc() {
             </div>
           ) : (
             <div className={styles.emptyLogs}>
-              <p>Chưa có logs. Logs sẽ hiển thị ở đây khi bạn đăng ký.</p>
+              <p>Chưa có response. Response sẽ hiển thị ở đây khi bạn đăng ký.</p>
             </div>
           )}
         </div>

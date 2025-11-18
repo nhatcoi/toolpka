@@ -29,26 +29,26 @@
 }
 
 .navItem {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  display: block;
   padding: 1rem 1.5rem;
-  color: white;
+  color: rgba(255, 255, 255, 0.85);
   text-decoration: none;
-  transition: background-color 0.2s;
+  transition: all 0.2s;
+  border-left: 3px solid transparent;
+  font-size: 0.95rem;
 }
 
 .navItem:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.08);
+  color: white;
+  border-left-color: rgba(255, 255, 255, 0.3);
 }
 
 .navItem.active {
-  background-color: rgba(255, 255, 255, 0.2);
-  font-weight: 600;
-}
-
-.icon {
-  font-size: 1.2rem;
+  background-color: rgba(255, 255, 255, 0.15);
+  color: white;
+  font-weight: 500;
+  border-left-color: white;
 }
 
 @media (max-width: 768px) {

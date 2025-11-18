@@ -5,8 +5,8 @@ import { usePathname } from 'next/navigation'
 import styles from './Sidebar.module.css'
 
 const menuItems = [
-  { path: '/', label: 'Trang chủ', icon: '🏠' },
-  { path: '/dang-ky-mon-hoc', label: 'Đăng ký môn học', icon: '📚' },
+  { path: '/', label: 'Trang chủ' },
+  { path: '/dang-ky-mon-hoc', label: 'Đăng ký môn học' },
 ]
 
 export default function Sidebar() {
@@ -26,8 +26,7 @@ export default function Sidebar() {
               pathname === item.path ? styles.active : ''
             }`}
           >
-            <span className={styles.icon}>{item.icon}</span>
-            <span>{item.label}</span>
+            {item.label}
           </Link>
         ))}
       </nav>

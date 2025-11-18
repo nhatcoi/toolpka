@@ -9,7 +9,6 @@ export default function Home() {
       </p>
       <div className={styles.features}>
         <div className={styles.featureCard}>
-          <div className={styles.featureIcon}>📚</div>
           <h3>Đăng ký môn học</h3>
           <p>Đăng ký môn học tự động với khả năng lên lịch và retry</p>
         </div>
